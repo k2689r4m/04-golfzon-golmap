@@ -1,0 +1,658 @@
+﻿@{
+    Layout = null;
+}
+
+
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preload" as="font" href="/font/font.css" rel="stylesheet" crossOrigin="anonymous" />
+    <script type="text/javascript" src="/lib/exif-js.js"></script>
+    <script>
+        async function getOrientation(img) {
+            return new Promise((resolve, reject) => {
+                EXIF.getData(img, function () {
+                    const orientation = EXIF.getTag(this, "Orientation");
+                    console.log(EXIF.getAllTags(this));
+                    resolve(orientation);
+                });
+            });
+        }
+        /*
+* FileSaver.js
+* A saveAs() FileSaver implementation.
+*
+* By Eli Grey, http://eligrey.com
+*
+* License : https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md (MIT)
+* source  : http://purl.eligrey.com/github/FileSaver.js
+*/
+
+        // The one and only way of getting global scope in all environments
+        // https://stackoverflow.com/q/3277182/1008999
+        var _global = typeof window === 'object' && window.window === window
+            ? window : typeof self === 'object' && self.self === self
+                ? self : typeof global === 'object' && global.global === global
+                    ? global
+                    : this
+
+        function bom(blob, opts) {
+            if (typeof opts === 'undefined') opts = { autoBom: false }
+            else if (typeof opts !== 'object') {
+                console.warn('Deprecated: Expected third argument to be a object')
+                opts = { autoBom: !opts }
+            }
+
+            // prepend BOM for UTF-8 XML and text/* types (including HTML)
+            // note: your browser will automatically convert UTF-16 U+FEFF to EF BB BF
+            if (opts.autoBom && /^\s*(?:text\/\S*|application\/xml|\S*\/\S*\+xml)\s*;.*charset\s*=\s*utf-8/i.test(blob.type)) {
+                return new Blob([String.fromCharCode(0xFEFF), blob], { type: blob.type })
+            }
+            return blob
+        }
+
+        function download(url, name, opts) {
+            var xhr = new XMLHttpRequest()
+            xhr.open('GET', url)
+            xhr.responseType = 'blob'
+            xhr.onload = function () {
+                saveAs(xhr.response, name, opts)
+            }
+            xhr.onerror = function () {
+                console.error('could not download file')
+            }
+            xhr.send()
+        }
+
+        function corsEnabled(url) {
+            var xhr = new XMLHttpRequest()
+            // use sync to avoid popup blocker
+            xhr.open('HEAD', url, false)
+            try {
+                xhr.send()
+            } catch (e) { }
+            return xhr.status >= 200 && xhr.status <= 299
+        }
+
+        // `a.click()` doesn't work for all browsers (#465)
+        function click(node) {
+            try {
+                node.dispatchEvent(new MouseEvent('click'))
+            } catch (e) {
+                var evt = document.createEvent('MouseEvents')
+                evt.initMouseEvent('click', true, true, window, 0, 0, 0, 80,
+                    20, false, false, false, false, 0, null)
+                node.dispatchEvent(evt)
+            }
+        }
+
+        // Detect WebView inside a native macOS app by ruling out all browsers
+        // We just need to check for 'Safari' because all other browsers (besides Firefox) include that too
+        // https://www.whatismybrowser.com/guides/the-latest-user-agent/macos
+        var isMacOSWebView = _global.navigator && /Macintosh/.test(navigator.userAgent) && /AppleWebKit/.test(navigator.userAgent) && !/Safari/.test(navigator.userAgent)
+
+        var saveAs = _global.saveAs || (
+            // probably in some web worker
+            (typeof window !== 'object' || window !== _global)
+                ? function saveAs() { /* noop */ }
+
+                // Use download attribute first if possible (#193 Lumia mobile) unless this is a macOS WebView
+                : ('download' in HTMLAnchorElement.prototype && !isMacOSWebView)
+                    ? function saveAs(blob, name, opts) {
+                        var URL = _global.URL || _global.webkitURL
+                        var a = document.createElement('a')
+                        name = name || blob.name || 'download'
+
+                        a.download = name
+                        a.rel = 'noopener' // tabnabbing
+
+                        // TODO: detect chrome extensions & packaged apps
+                        // a.target = '_blank'
+
+                        if (typeof blob === 'string') {
+                            // Support regular links
+                            a.href = blob
+                            if (a.origin !== location.origin) {
+                                corsEnabled(a.href)
+                                    ? download(blob, name, opts)
+                                    : click(a, a.target = '_blank')
+                            } else {
+                                click(a)
+                            }
+                        } else {
+                            // Support blobs
+                            a.href = URL.createObjectURL(blob)
+                            setTimeout(function () { URL.revokeObjectURL(a.href) }, 4E4) // 40s
+                            setTimeout(function () { click(a) }, 0)
+                        }
+                    }
+
+                    // Use msSaveOrOpenBlob as a second approach
+                    : 'msSaveOrOpenBlob' in navigator
+                        ? function saveAs(blob, name, opts) {
+                            name = name || blob.name || 'download'
+
+                            if (typeof blob === 'string') {
+                                if (corsEnabled(blob)) {
+                                    download(blob, name, opts)
+                                } else {
+                                    var a = document.createElement('a')
+                                    a.href = blob
+                                    a.target = '_blank'
+                                    setTimeout(function () { click(a) })
+                                }
+                            } else {
+                                navigator.msSaveOrOpenBlob(bom(blob, opts), name)
+                            }
+                        }
+
+                        // Fallback to using FileReader and a popup
+                        : function saveAs(blob, name, opts, popup) {
+                            // Open a popup immediately do go around popup blocker
+                            // Mostly only available on user interaction and the fileReader is async so...
+                            popup = popup || open('', '_blank')
+                            if (popup) {
+                                popup.document.title =
+                                    popup.document.body.innerText = 'downloading...'
+                            }
+
+                            if (typeof blob === 'string') return download(blob, name, opts)
+
+                            var force = blob.type === 'application/octet-stream'
+                            var isSafari = /constructor/i.test(_global.HTMLElement) || _global.safari
+                            var isChromeIOS = /CriOS\/[\d]+/.test(navigator.userAgent)
+
+                            if ((isChromeIOS || (force && isSafari) || isMacOSWebView) && typeof FileReader !== 'undefined') {
+                                // Safari doesn't allow downloading of blob URLs
+                                var reader = new FileReader()
+                                reader.onloadend = function () {
+                                    var url = reader.result
+                                    url = isChromeIOS ? url : url.replace(/^data:[^;]*;/, 'data:attachment/file;')
+                                    if (popup) popup.location.href = url
+                                    else location = url
+                                    popup = null // reverse-tabnabbing #460
+                                }
+                                reader.readAsDataURL(blob)
+                            } else {
+                                var URL = _global.URL || _global.webkitURL
+                                var url = URL.createObjectURL(blob)
+                                if (popup) popup.location = url
+                                else location.href = url
+                                popup = null // reverse-tabnabbing #460
+                                setTimeout(function () { URL.revokeObjectURL(url) }, 4E4) // 40s
+                            }
+                        }
+        )
+
+        _global.saveAs = saveAs.saveAs = saveAs
+
+        if (typeof module !== 'undefined') {
+            module.exports = saveAs;
+        }
+
+        const cityInfoList = [
+            {
+                name: '한강이남',
+                cityCode: 1,
+                lat: 37.26132706266329,
+                lng: 126.9889681399653,
+                representativeLat: 37.17583465,
+                representativeLng: 127.4542121,
+            },
+            {
+                name: '한강이북',
+                cityCode: 2,
+                lat: 37.755075555164686,
+                lng: 126.97588456806821,
+                representativeLat: 37.78424338,
+                representativeLng: 127.0894048,
+            },
+            {
+                name: '강원',
+                cityCode: 32,
+                lat: 37.70700768849144,
+                lng: 128.37989297832078,
+                representativeLat: 37.5902408,
+                representativeLng: 128.3355204,
+            },
+            {
+                name: '충북',
+                cityCode: 33,
+                lat: 36.843069399712526,
+                lng: 127.755771065911,
+                representativeLat: 36.8195719,
+                representativeLng: 127.4708802,
+            },
+            {
+                name: '충남',
+                cityCode: 34,
+                lat: 36.55927437723196,
+                lng: 126.81505272680526,
+                representativeLat: 36.69761235,
+                representativeLng: 127.1763827,
+            },
+            {
+                name: '전북',
+                cityCode: 35,
+                lat: 35.72419078557959,
+                lng: 127.06843758404045,
+                representativeLat: 35.84215724,
+                representativeLng: 127.3226422,
+            },
+            {
+                name: '전남',
+                cityCode: 36,
+                lat: 34.92355260586787,
+                lng: 126.93086579084449,
+                representativeLat: 34.95963431,
+                representativeLng: 126.8734753,
+            },
+            {
+                name: '경북',
+                cityCode: 37,
+                lat: 36.50310367444907,
+                lng: 128.643945838955188,
+                representativeLat: 36.16178586,
+                representativeLng: 128.4496731,
+            },
+            {
+                name: '경남',
+                cityCode: 38,
+                lat: 35.45451293686896,
+                lng: 128.1570836146571,
+                representativeLat: 35.39521319,
+                representativeLng: 129.0204716,
+            },
+            {
+                name: '제주',
+                cityCode: 39,
+                lat: 33.38281138792436,
+                lng: 126.54332148138465,
+                representativeLat: 33.35096043,
+                representativeLng: 126.3866775,
+            },
+        ];
+
+        window.onload = async () => {
+            const url = await (createSkinImage('@Html.Raw(ViewBag.uri)', @ViewBag.type, @ViewBag.code, decodeURIComponent('@Html.Raw(ViewBag.golfClubName)'), '@ViewBag.playDate', '@ViewBag.score'));
+        document.getElementById("img").src = url;
+    }
+
+    function codeToAddressName(code) {
+        for (const cityInfo of cityInfoList) {
+            if (cityInfo.cityCode === code)
+                return {
+                    name: cityInfo.name,
+                    lat: cityInfo.lat,
+                    lng: cityInfo.lng,
+                };
+        }
+
+        return null;
+        };
+
+    async function createSkinImage(image, skinType, code = 0, golfClubName, playDate, score) {
+        if (score) {
+            score = `Score ${score}`;
+        } else {
+            score = `Score 0`;
+        }
+
+        return new Promise((resolve, reject) => {
+            const cityInfo = cityInfoList.find(e => e.cityCode === code);
+            const { lat, lng } = cityInfo ? cityInfo : { lat: 0, lng: 0 };
+            const t = 38.61509977158916;
+            const b = 33.19447556823512;
+            const l = 126.11168024257817;
+            const r = 129.58470538004804;
+
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            const imgMain = new Image();
+            const svgLogo = new Image();
+            const svgMap = new Image();
+            const svgPin = new Image();
+
+            imgMain.src = "/" + image;
+            imgMain.crossOrigin = 'Anonymous';
+            svgLogo.src = '/images2/logo_golmap2.svg';
+            svgLogo.crossOrigin = 'Anonymous';
+            svgMap.src = '/images2/map.svg';
+            svgMap.crossOrigin = 'Anonymous';
+            svgPin.src = '/images2/pin.svg';
+            svgPin.crossOrigin = 'Anonymous';
+
+            let imgCnt = 4;
+
+            const loadImages = async () => {
+                canvas.width = imgMain.width;
+                canvas.height = imgMain.height;
+                context.drawImage(imgMain, 0, 0);
+                
+
+
+      // 5300w / 4000h
+      const ratio = imgMain.height / 4000;
+      let backgroundHeight = Math.floor(600 * ratio);
+      let logoWidth = Math.floor(424 * ratio);
+      let logoHeight = Math.floor(400 * ratio);
+      let mapWidth = Math.floor(1060 * ratio);
+      let mapHeight = Math.floor(1440 * ratio);
+      let widthPadding = Math.floor(80 * ratio);
+      let heightPadding = Math.floor(80 * ratio);
+      let pinWidth = Math.floor(128 * ratio);
+      let pinHeight = Math.floor(160 * ratio);
+      const bigFontSize = Math.floor(200 * ratio);
+      const smallFontsize = Math.floor(160 * ratio);
+      const textTopY = imgMain.height - backgroundHeight + Math.floor(100 * ratio);
+      const textBottomY = imgMain.height - backgroundHeight + Math.floor(340 * ratio);
+    //   const textTopY = imgMain.height - backgroundHeight + Math.floor(70 * ratio);
+    //   const textBottomY = imgMain.height - backgroundHeight + Math.floor(310 * ratio);
+
+      const pinX = mapWidth * (1 - (r - lng) / (r - l)) - (pinWidth / 2);
+      const pinY = mapHeight * ((t - lat) / (t - b)) - pinHeight;
+      
+      const measureText = (text, fontSize=bigFontSize) => {
+        const wp = widthPadding;
+        context.font = `italic ${fontSize}px 'Malgun Gothic', '맑은 고딕', sans-serif`;
+        const {width} = context.measureText(text);
+
+        return {
+          width: width + wp
+        };
+      };
+
+      const drawText = (text, x, y, fontSize=bigFontSize) => {
+        context.font = `italic ${fontSize}px 'Malgun Gothic', '맑은 고딕', sans-serif`;
+        let { width } = context.measureText(text);
+        let height = fontSize;
+        const radius = Math.floor(fontSize / 4);
+        const wp = widthPadding;
+        const hp = Math.floor(heightPadding / 4);
+        width = width + wp;
+        height = height + hp;
+
+        // context.beginPath();
+        // context.moveTo(x  + radius, y);
+        // context.arcTo(x + width, y, x + width, y + height, radius);
+        // context.arcTo(x + width, y + height, x, y + height, radius);
+        // context.arcTo(x, y + height, x, y, radius);
+        // context.arcTo(x, y, x + width, y, radius);
+        // context.closePath();
+        // context.fillStyle = `rgba(255, 255, 255, 0.4)`;
+        // context.fill();
+
+        context.fillStyle = '#fff';
+        context.fillText(text, x + wp/2, y + height - hp * 2);
+
+        return {
+          width,
+          height
+        };
+      };
+
+      context.globalAlpha = 0.6;
+      context.fillStyle = '#002b4f';
+      context.fillRect(
+        0,
+        imgMain.height - backgroundHeight,
+        imgMain.width,
+        backgroundHeight,
+      );
+      context.globalAlpha = 1;
+
+      if (skinType === 1) {
+        context.drawImage(
+            svgLogo, 
+            0, 
+            0, 
+            svgLogo.width,
+            svgLogo.height,
+            imgMain.width - logoWidth - widthPadding,
+            heightPadding,
+            logoWidth,
+            logoHeight
+        );
+        
+        context.globalAlpha = 0.5;
+        context.drawImage(
+          svgMap,
+          0,
+          0,
+          svgMap.width,
+          svgMap.height,
+          imgMain.width - mapWidth - widthPadding,
+          imgMain.height - mapHeight - heightPadding,
+          mapWidth,
+          mapHeight
+        );
+        context.globalAlpha = 1;
+
+        if (golfClubName) {
+        //   drawText(golfClubName, widthPadding * 2, imgMain.height - (backgroundHeight / 2) - (bigFontSize/2) - (35 * ratio)); 
+          drawText(golfClubName, widthPadding * 2, imgMain.height - (backgroundHeight / 2) - (bigFontSize/2)); 
+        }
+        if (code !== 0) {
+          context.drawImage(
+            svgPin,
+            0,
+            0,
+            svgPin.width,
+            svgPin.height,
+            imgMain.width - mapWidth - widthPadding + pinX,
+            imgMain.height - mapHeight - heightPadding + pinY,
+            pinWidth,
+            pinHeight
+          );
+        }
+      } else if (skinType === 2) {
+        context.drawImage(
+            svgLogo, 
+            0, 
+            0, 
+            svgLogo.width,
+            svgLogo.height,
+            imgMain.width - logoWidth - widthPadding,
+            heightPadding,
+            logoWidth,
+            logoHeight
+        );
+        
+        context.globalAlpha = 0.5;
+        context.drawImage(
+          svgMap,
+          0,
+          0,
+          svgMap.width,
+          svgMap.height,
+          imgMain.width - mapWidth - widthPadding,
+          imgMain.height - mapHeight - heightPadding,
+          mapWidth,
+          mapHeight
+        );
+        context.globalAlpha = 1;
+
+        if (playDate) {
+            drawText(playDate, widthPadding * 2, textBottomY, smallFontsize);   
+        }
+        if (golfClubName) {
+          drawText(golfClubName, widthPadding * 2, textTopY); 
+        }
+        if (code !== 0) {
+          context.drawImage(
+            svgPin,
+            0,
+            0,
+            svgPin.width,
+            svgPin.height,
+            imgMain.width - mapWidth - widthPadding + pinX,
+            imgMain.height - mapHeight - heightPadding + pinY,
+            pinWidth,
+            pinHeight
+          );
+        }
+      } else if (skinType === 3) {
+        context.drawImage(
+            svgLogo, 
+            0, 
+            0, 
+            svgLogo.width,
+            svgLogo.height,
+            imgMain.width - logoWidth - widthPadding,
+            heightPadding,
+            logoWidth,
+            logoHeight
+        );
+        
+        context.globalAlpha = 0.5;
+        context.drawImage(
+          svgMap,
+          0,
+          0,
+          svgMap.width,
+          svgMap.height,
+          imgMain.width - mapWidth - widthPadding,
+          imgMain.height - mapHeight - heightPadding,
+          mapWidth,
+          mapHeight
+        );
+        context.globalAlpha = 1;
+
+        if (playDate && score) {
+          const { width } = drawText(playDate, widthPadding * 2, textBottomY, smallFontsize);   
+          drawText(score, widthPadding * 2 + width, textBottomY, smallFontsize);   
+        }
+        if (golfClubName) {
+          drawText(golfClubName, widthPadding * 2, textTopY); 
+        }
+        if (code !== 0) {
+          context.drawImage(
+            svgPin,
+            0,
+            0,
+            svgPin.width,
+            svgPin.height,
+            imgMain.width - mapWidth - widthPadding + pinX,
+            imgMain.height - mapHeight - heightPadding + pinY,
+            pinWidth,
+            pinHeight
+          );
+        }
+      } else if (skinType === 4) {
+        context.drawImage(
+            svgLogo, 
+            0, 
+            0, 
+            svgLogo.width,
+            svgLogo.height,
+            imgMain.width - logoWidth - widthPadding,
+            heightPadding,
+            logoWidth,
+            logoHeight
+        );
+
+        if (playDate && score) {
+            const { width } = drawText(playDate, widthPadding * 2, textBottomY, smallFontsize);   
+            drawText(score, widthPadding * 2 + width, textBottomY, smallFontsize);   
+          }
+          if (golfClubName) {
+            drawText(golfClubName, widthPadding * 2, textTopY); 
+          }
+      }
+
+                canvas.toBlob((blob) => {
+                    getOrientation(blob);
+                    saveAs(blob, "golmap.png");
+                });
+
+                const url = canvas.toDataURL('image/jpeg');
+                
+                resolve(url);
+            };
+
+            const decreaseCntAndRun = () => {
+                imgCnt--;
+                if (imgCnt === 0) loadImages();
+            };
+
+            imgMain.onload = () => {
+                decreaseCntAndRun();
+            };
+
+            svgLogo.onload = () => {
+                decreaseCntAndRun();
+            };
+
+            svgMap.onload = () => {
+                decreaseCntAndRun();
+            };
+
+            svgPin.onload = () => {
+                decreaseCntAndRun();
+            }
+        });
+    };
+    </script>
+
+<style>
+     html, body {
+         margin: 0;
+         padding: 0;
+         border: 0;
+         vertical-align: baseline;
+         box-sizing: border-box;
+     }
+
+    .wrap {
+        max-width: 767px;
+        width: 100%;
+        margin: 0 auto;
+    }
+
+    .bar {
+        content: '';
+        display: block;
+        width: 20px;
+        height: 2px;
+        background: #3a3a3a;
+        margin-bottom: 15px;
+    }
+
+    .logo {
+        width: 60px;
+        margin-bottom: 15px;
+    }
+
+    .img {
+        width: 90%;
+        margin-top: 30px;
+        box-shadow: 0 10px 20px rgb(0 0 0 / 20%);
+    }
+
+    .content {
+        margin-top: 20px;
+        margin-bottom: 20px;
+    }
+
+    .download-img {
+        display: flex;
+        align-items: center;
+        font-size: 1rem;
+        line-height: 1.5;
+        -ms-flex-direction: column;
+        flex-direction: column;
+        text-align: center;
+    }
+</style>
+
+<div class="wrap">
+    <div class="content">
+        <div class="download-img">
+            <img src="/images2/logo.svg" alt="logo" class="logo" />
+            <span class="bar"></span>
+            안드로이드는 기기 갤러리에
+            <br />
+            아이폰은 브라우저에 이미지가 저장됩니다.
+            <img alt="target" class="img" id="img" />
+        </div>
+    </div>
+</div>
